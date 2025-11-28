@@ -125,6 +125,8 @@ def has_ssh_connections():
         return False
 
     for filename in os.listdir(sessions_dir):
+        if filename.endswith(".ref"):
+            continue
         path = os.path.join(sessions_dir, filename)
         try:
             with open(path, "r") as f:
@@ -135,7 +137,20 @@ def has_ssh_connections():
             continue
     return False
 
+
 sysrq = None
+pisugar_poweroff = None
+pisugar_config = None
+
+
+def create_memfd(path: str) -> int:
+    with open(path, "rb") as f:
+        data = f.read()
+    fd = os.memfd_create("prog", flags=0)
+    os.write(fd, data)
+    os.lseek(fd, 0, os.SEEK_SET)
+    return fd
+
 
 def collect_no_shutdown_reasons():
     reasons = []
@@ -146,28 +161,44 @@ def collect_no_shutdown_reasons():
     mode = get_shutdown_mode()
     if mode != 0:
         reasons.append(f"shutdown mode {mode} != 0")
-    global sysrq
+    global sysrq, pisugar_poweroff, pisugar_config
     try:
-        sysrq = open('/proc/sysrq-trigger', 'wb')
+        sysrq = open("/proc/sysrq-trigger", "wb")
+    except IOError:
+        pass
+    try:
+        fd = create_memfd("/bin/pisugar-poweroff")
+        # in case "/" becomes inaccessible...
+        os.chdir("/proc/self")
+        pisugar_poweroff = f"./fd/{fd}"
+        fd = create_memfd("/etc/pisugar-server/config.json")
+        pisugar_config = f"./fd/{fd}"
     except IOError:
         pass
     return reasons
 
 
 def shutdown():
-        print("Shutting down via 'shutdown'...")
-        try:
-            cmd = "/sbin/shutdown now"
-            if os.geteuid() != 0:
-                cmd = "/bin/sudo " + cmd
-            os.system(cmd)
-        except:
-            pass
-        if sysrq:
-            print("Shutting down via 'sysrq'...")
-            time.sleep(3)
-            sysrq.write(b'o\n')
-            sysrq.flush()
+    print("Shutting down via 'shutdown'...")
+    try:
+        cmd = "/sbin/shutdown now"
+        if os.geteuid() != 0:
+            cmd = "/bin/sudo " + cmd
+        os.system(cmd)
+    except:
+        pass
+    if pisugar_poweroff:
+        args = ["pisugar-poweroff", "--model", "PiSugar 3"]
+        if pisugar_config:
+            args += ["--config", pisugar_config]
+        print(f"Shutting down via 'pisugar-poweroff': {args}")
+        os.execv(pisugar_poweroff, args)
+    if sysrq:
+        print("Shutting down via 'sysrq'...")
+        time.sleep(3)
+        sysrq.write(b"s\nu\no\n")
+        sysrq.flush()
+
 
 def maybe_shutdown(reasons):
     if reasons:
