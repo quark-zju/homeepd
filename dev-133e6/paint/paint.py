@@ -4,8 +4,11 @@
 1. Download (raw) image from a url.
 2. Draw PiSugar battery bar to the image (at top-right).
 3. Paint the image via epd-paint, if image changed.
-4. Shutdown if at midnight.
 """
+
+# Maybe add " mmc_core.timeout=300" to /boot/firmware/cmdline.txt
+# power consumption might force unmount the sd card...
+
 
 import os
 import hashlib
@@ -105,9 +108,13 @@ def paint_image(image):
     proc.wait()
 
 
-def shutdown():
-    print("Shutting down")
-    os.system('sudo shutdown -h now "Completed paint."')
+def run_shutdown_script():
+    shutdown_script = os.path.join(
+        os.path.dirname(os.path.realpath(__file__)), "../cronjob/maybe_shutdown.py"
+    )
+    env = os.environ.copy()
+    env["UPTIME_LIMIT"] = "1"
+    subprocess.run([sys.executable, shutdown_script], env=env)
 
 
 def main():
@@ -124,15 +131,16 @@ def main():
     image = draw_battery(image, battery_level)
     if image_changed(image):
         print("Paint (changed) image")
-        paint_image(image)
+        if os.getenv("SKIP_PAINT"):
+            print("  Skip with SKIP_PAINT")
+        else:
+            # This might draw power to make the mmc timeout...
+            # and force the filesystem to crash...
+            paint_image(image)
     else:
         print("Skip painting - no change")
 
-    charging = get_pisugar_is_charging()
-    if charging:
-        print("Skip shutdown - is charging")
-    else:
-        shutdown()
+    run_shutdown_script()
 
 
 if __name__ == "__main__":

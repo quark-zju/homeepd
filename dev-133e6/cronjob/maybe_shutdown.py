@@ -6,6 +6,7 @@
 import os
 import socket
 import subprocess
+import urllib.request
 
 
 def ask_pisugar(message: str) -> str:
@@ -20,6 +21,21 @@ def ask_pisugar(message: str) -> str:
 def get_pisugar_is_charging() -> bool:
     res = ask_pisugar("get battery_power_plugged\n")
     return res.strip() == "true"
+
+
+def download_file_to_memory(url: str) -> bytes:
+    with urllib.request.urlopen(url) as response:
+        data = response.read()  # 读取全部二进制数据
+    return data
+
+
+def get_shutdown_mode():
+    url = "http://iot.home/shutdown.txt"
+    try:
+        mode = int(download_file_to_memory(url).decode())
+    except Exception:
+        mode = 0
+    return mode
 
 
 def get_uptime_seconds():
@@ -44,23 +60,37 @@ def has_ssh_connections():
     return False
 
 
+def shutdown():
+
+    print("Shutting down...")
+    cmd = "/sbin/shutdown now"
+    if os.geteuid() != 0:
+        cmd = "/bin/sudo " + cmd
+    os.system(cmd)
+
+
 def main():
     uptime = get_uptime_seconds()
     reasons = []
-    uptime_limit = 118
+    uptime_limit = int(os.getenv("UPTIME_LIMIT", "118"))
     if uptime < uptime_limit:
         reasons.append(f"uptime {uptime} < {uptime_limit}")
     if has_ssh_connections():
         reasons.append("has ssh connections")
     if get_pisugar_is_charging():
         reasons.append("PiSugar is charging")
+    mode = get_shutdown_mode()
+    if mode != 0:
+        reasons.append(f"shutdown mode {mode} != 0")
     if reasons:
         print("Skip shutdown:")
         for reason in reasons:
             print(f"- {reason}")
+        if os.path.exists("/tmp/force-shutdown-for-test") and not os.getenv("CRON"):
+            print("Still shutdown for testing (not CRON)")
+            shutdown()
     else:
-        print("Shutting down...")
-        os.system("sudo shutdown -h now 'Auto shutdown with no connections.'")
+        shutdown()
 
 
 if __name__ == "__main__":
