@@ -10,12 +10,13 @@
 # power consumption might force unmount the sd card...
 
 
-import os
 import hashlib
-import sys
-import urllib.request
-import subprocess
+import os
 import socket
+import subprocess
+import sys
+import time
+import urllib.request
 from datetime import datetime
 
 
@@ -101,6 +102,7 @@ def image_changed(image) -> bool:
 
 
 def paint_image(image):
+    os.system("sync")
     exe_path = os.path.join(os.path.dirname(os.path.realpath(__file__)), "epd-paint")
     proc = subprocess.Popen([exe_path], stdin=subprocess.PIPE)
     proc.stdin.write(image)
@@ -108,13 +110,72 @@ def paint_image(image):
     proc.wait()
 
 
-def run_shutdown_script():
-    shutdown_script = os.path.join(
-        os.path.dirname(os.path.realpath(__file__)), "../cronjob/maybe_shutdown.py"
-    )
-    env = os.environ.copy()
-    env["UPTIME_LIMIT"] = "1"
-    subprocess.run([sys.executable, shutdown_script], env=env)
+def get_shutdown_mode():
+    url = "http://iot.home/shutdown.txt"
+    try:
+        mode = int(download_file_to_memory(url).decode())
+    except Exception:
+        mode = 0
+    return mode
+
+
+def has_ssh_connections():
+    sessions_dir = "/run/systemd/sessions"
+    if not os.path.isdir(sessions_dir):
+        return False
+
+    for filename in os.listdir(sessions_dir):
+        path = os.path.join(sessions_dir, filename)
+        try:
+            with open(path, "r") as f:
+                content = f.read()
+            if "SERVICE=sshd" in content.splitlines():
+                return True
+        except Exception:
+            continue
+    return False
+
+sysrq = None
+
+def collect_no_shutdown_reasons():
+    reasons = []
+    if has_ssh_connections():
+        reasons.append("has ssh connections")
+    if get_pisugar_is_charging():
+        reasons.append("PiSugar is charging")
+    mode = get_shutdown_mode()
+    if mode != 0:
+        reasons.append(f"shutdown mode {mode} != 0")
+    global sysrq
+    try:
+        sysrq = open('/proc/sysrq-trigger', 'wb')
+    except IOError:
+        pass
+    return reasons
+
+
+def shutdown():
+        print("Shutting down via 'shutdown'...")
+        try:
+            cmd = "/sbin/shutdown now"
+            if os.geteuid() != 0:
+                cmd = "/bin/sudo " + cmd
+            os.system(cmd)
+        except:
+            pass
+        if sysrq:
+            print("Shutting down via 'sysrq'...")
+            time.sleep(3)
+            sysrq.write(b'o\n')
+            sysrq.flush()
+
+def maybe_shutdown(reasons):
+    if reasons:
+        print("Skip shutdown:")
+        for reason in reasons:
+            print(f"- {reason}")
+    else:
+        shutdown()
 
 
 def main():
@@ -128,6 +189,9 @@ def main():
         return
     print("Downloaded image from %s" % url)
 
+    # Read reasons before the filesystem becomes unavailable...
+    no_shutdown_reasons = collect_no_shutdown_reasons()
+
     image = draw_battery(image, battery_level)
     if image_changed(image):
         print("Paint (changed) image")
@@ -140,7 +204,10 @@ def main():
     else:
         print("Skip painting - no change")
 
-    run_shutdown_script()
+    # At this time, the filesystem might be gone. Things like
+    # /bin/python3 is unavailable. We want to shutdown without
+    # depending on the fs.
+    maybe_shutdown(no_shutdown_reasons)
 
 
 if __name__ == "__main__":
