@@ -1,0 +1,7 @@
+Based on https://github.com/waveshareteam/ESP32-S3-PhotoPainter/tree/56c5498c44490cec4feef35d5f00cdac6b6dba26/01_Example/xiaozhi-esp32
+Only differences are tracked in this directory.
+
+The modified version will:
+- Fetch and show an image from iot.home/7.sp6 on boot, and on pressing "boot".
+- Reuses xiaozhi's wifi connection setup logic.
+- Deep sleep for 1 day.

@@ -1,0 +1,21 @@
+idf_component_register(
+  SRCS 
+  "mode_src/Basic_mode.cpp" 
+  "user_app.cpp" 
+  PRIV_REQUIRES 
+  driver 
+  axpPower 
+  epaper_port 
+  epaper_src 
+  i2c_bsp 
+  led_bsp 
+  ListLib
+  sdcard_bsp  
+  button_bsp
+  http_client_bsp
+  json_bsp
+  nvs_flash
+  esp_wifi
+  audio_bsp
+  main
+  INCLUDE_DIRS "./")
