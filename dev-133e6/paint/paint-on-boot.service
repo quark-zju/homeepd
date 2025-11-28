@@ -1,0 +1,13 @@
+# Put this file at /etc/systemd/system/
+
+[Unit]
+Description=Paint image on boot
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/python3 /home/quark/src/homeepd/dev-133e6/paint/paint.py
+
+[Install]
+WantedBy=multi-user.target
